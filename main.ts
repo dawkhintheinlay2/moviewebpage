@@ -1,65 +1,87 @@
-// main.ts (Final Fix for Save & Raw Download)
+// main.ts (Multi-Script & Unlimited Size Version)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
+const CHUNK_SIZE = 64000; // 64KB per Deno KV entry limit
 
-console.log("Deno Code Hosting Service (Final Fix) is starting...");
+console.log("Multi-Repo Code Hosting Service is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const { pathname, searchParams } = url;
     const method = req.method;
 
-    // The raw endpoint for serving the script
     const rawPattern = new URLPattern({ pathname: "/raw/:filename" });
-    const rawMatch = rawPattern.exec(url);
-    if (rawMatch) {
-        const filename = rawMatch.pathname.groups.filename;
-        const result = await kv.get<string>(["scripts", filename]);
-
-        if (!result.value) {
-            return new Response("Script not found.", { status: 404 });
+    if (rawPattern.exec(url)) {
+        const filename = rawPattern.exec(url)!.pathname.groups.filename!;
+        const scriptIterator = kv.list<string>({ prefix: ["scripts", filename] });
+        const chunks = [];
+        for await (const entry of scriptIterator) {
+            chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value });
         }
+        if (chunks.length === 0) return new Response("Script not found.", { status: 404 });
         
-        // --- FIX #2: Change Content-Type to text/plain ---
-        // This tells the browser to display the content as plain text, not download it.
-        return new Response(result.value, {
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-        });
+        chunks.sort((a, b) => a.index - b.index);
+        const fullCode = chunks.map(c => c.value).join('');
+
+        return new Response(fullCode, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
-    // Admin login page and redirection
     if (pathname === "/" || pathname === "/admin-login") {
-         if (searchParams.get("token") === ADMIN_TOKEN) {
-            return Response.redirect(`${url.origin}/editor?token=${ADMIN_TOKEN}`, 302);
-         }
+         if (searchParams.get("token") === ADMIN_TOKEN) { return Response.redirect(`${url.origin}/editor?token=${ADMIN_TOKEN}`); }
          return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     
-    // Editor Page
     if (pathname === "/editor") {
-        if (searchParams.get("token") !== ADMIN_TOKEN) {
-            return new Response("Forbidden: Invalid Admin Token.", { status: 403 });
-        }
-        const scriptResult = await kv.get<string>(["scripts", "main.ts"]);
-        const currentCode = scriptResult.value || `// Start writing your Deno script here!\nconsole.log("Hello from my custom script!");`;
+        if (searchParams.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
         
-        return new Response(getEditorPageHTML(currentCode, ADMIN_TOKEN, url.origin), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+        const scriptIterator = kv.list({ prefix: ["scripts"] });
+        const scriptNames = new Set<string>();
+        for await (const entry of scriptIterator) { scriptNames.add(entry.key[1] as string); }
+
+        let activeScript = searchParams.get("file") || "main.ts";
+        if (!scriptNames.has(activeScript)) { activeScript = scriptNames.values().next().value || "main.ts"; }
+        
+        const chunkIterator = kv.list<string>({ prefix: ["scripts", activeScript] });
+        const chunks = [];
+        for await (const entry of chunkIterator) {
+             chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value });
+        }
+        chunks.sort((a, b) => a.index - b.index);
+        const currentCode = chunks.map(c => c.value).join('') || `// Welcome to ${activeScript}!`;
+
+        return new Response(getEditorPageHTML(currentCode, Array.from(scriptNames), activeScript, ADMIN_TOKEN, url.origin), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
-    // Handle saving the code
     if (pathname === "/save" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
         
         const code = formData.get("code") as string;
-        const filename = "main.ts";
+        const filename = formData.get("filename") as string;
         
-        await kv.set(["scripts", filename], code);
+        // Delete old chunks first
+        const oldChunks = kv.list({ prefix: ["scripts", filename] });
+        for await (const chunk of oldChunks) { await kv.delete(chunk.key); }
 
-        // --- FIX #1: Redirect back to the editor with the token ---
-        return Response.redirect(`/editor?token=${ADMIN_TOKEN}&status=saved`, 302);
+        // Save new code in chunks
+        for (let i = 0; i * CHUNK_SIZE < code.length; i++) {
+            const chunkContent = code.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+            await kv.set(["scripts", filename, `chunk_${i}`], chunkContent);
+        }
+
+        return Response.redirect(`/editor?token=${ADMIN_TOKEN}&file=${filename}&status=saved`, 302);
+    }
+
+    if (pathname === "/create-script" && method === "POST") {
+        const formData = await req.formData();
+        if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
+        const newFilename = (formData.get("newFilename") as string).trim();
+        if (newFilename) {
+            await kv.set(["scripts", newFilename, `chunk_0`], `// New script: ${newFilename}`);
+        }
+        return Response.redirect(`/editor?token=${ADMIN_TOKEN}&file=${newFilename}`);
     }
     
     return new Response("Not Found", { status: 404 });
@@ -74,48 +96,58 @@ function getLoginPageHTML(): string {
     <body><div class="login-box"><h1>Login to Code Editor</h1><form action="/editor"><input type="password" name="token" placeholder="Enter Admin Token" required><button type="submit">Enter</button></form></div></body></html>`;
 }
 
-function getEditorPageHTML(code: string, token: string, origin: string): string {
-    const rawLink = `${origin}/raw/main.ts`;
+function getEditorPageHTML(code: string, scriptNames: string[], activeScript: string, token: string, origin: string): string {
+    const rawLink = `${origin}/raw/${activeScript}`;
+    const scriptListHTML = scriptNames.map(name => `<li><a href="/editor?token=${token}&file=${name}" class="${name === activeScript ? 'active' : ''}">${name}</a></li>`).join('');
+
     return `
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Deno Code Editor</title>
     <style>
-        body { margin: 0; font-family: monospace; background: #1e1e1e; color: #d4d4d4; }
-        .container { display: flex; flex-direction: column; height: 100vh; }
-        .header { padding: 1rem; background: #252526; border-bottom: 1px solid #333; }
-        .header h1 { margin: 0 0 0.5rem 0; font-size: 1.2rem; }
-        .raw-link label { font-size: 0.9rem; color: #aaa; }
-        .raw-link input { width: 100%; box-sizing: border-box; background: #333; color: #eee; border: 1px solid #444; padding: 0.5rem; margin-top: 0.2rem; border-radius: 4px;}
-        form { flex-grow: 1; display: flex; flex-direction: column; }
-        textarea {
-            flex-grow: 1; width: 100%; border: none; background: #1e1e1e; color: #d4d4d4;
-            padding: 1rem; font-family: monospace; font-size: 16px; line-height: 1.5; resize: none;
-            outline: none;
-        }
+        body { margin: 0; font-family: sans-serif; background: #1e1e1e; }
+        .layout { display: flex; height: 100vh; }
+        .sidebar { width: 250px; background: #252526; border-right: 1px solid #333; display: flex; flex-direction: column; padding: 1rem; }
+        .sidebar h2 { font-size: 1.2rem; margin: 0 0 1rem 0; color: #ccc; }
+        .sidebar ul { list-style: none; padding: 0; margin: 0 0 1rem 0; overflow-y: auto; }
+        .sidebar ul a { display: block; padding: 0.5rem; text-decoration: none; color: #ccc; border-radius: 4px; }
+        .sidebar ul a.active, .sidebar ul a:hover { background: #333; color: white; }
+        .new-script-form { margin-top: auto; }
+        .new-script-form input { width: 100%; box-sizing: border-box; padding: 0.5rem; background: #333; border: 1px solid #444; color: #eee; border-radius: 4px; margin-bottom: 0.5rem; }
+        .new-script-form button { width: 100%; padding: 0.5rem; background: #0e639c; color: white; border: none; border-radius: 4px; }
+        .main-content { flex-grow: 1; display: flex; flex-direction: column; }
+        .header { padding: 1rem; background: #252526; }
+        .header input { width: 100%; box-sizing: border-box; background: #333; color: #eee; border: 1px solid #444; padding: 0.5rem; border-radius: 4px; }
+        form#editor-form { flex-grow: 1; display: flex; flex-direction: column; }
+        textarea { flex-grow: 1; border: none; background: #1e1e1e; color: #d4d4d4; padding: 1rem; font-family: monospace; font-size: 16px; resize: none; outline: none; }
         .footer { padding: 0.5rem 1rem; background: #007acc; text-align: right; }
-        button { background: transparent; color: white; border: none; padding: 0.8rem 1.5rem; cursor: pointer; font-size: 1rem; font-weight: bold; }
-        .notification { padding:1rem; text-align:center; background: #28a745; color: white; display: none; position: fixed; top: 0; left: 0; width: 100%; }
+        .footer button { background: transparent; color: white; border: none; padding: 0.8rem 1.5rem; cursor: pointer; font-size: 1rem; font-weight: bold; }
+        .notification { padding:1rem; text-align:center; background:#28a745; color:white; display:none; position:fixed; top:0; left:0; width:100%; z-index: 2000; }
     </style>
     </head><body>
         <div id="notification"></div>
-        <div class="container">
-            <div class="header">
-                <h1>Deno Script Editor (main.ts)</h1>
-                <div class="raw-link">
-                    <label for="raw-link-input">Your Raw Link:</label>
-                    <input id="raw-link-input" type="text" value="${rawLink}" readonly onclick="this.select()">
-                </div>
+        <div class="layout">
+            <div class="sidebar">
+                <h2>Scripts</h2>
+                <ul>${scriptListHTML}</ul>
+                <form class="new-script-form" method="POST" action="/create-script">
+                    <input type="hidden" name="token" value="${token}">
+                    <input type="text" name="newFilename" placeholder="new-script.ts" required>
+                    <button type="submit">Create New Script</button>
+                </form>
             </div>
-            <form id="editor-form" method="POST" action="/save">
-                <input type="hidden" name="token" value="${token}">
-                <textarea name="code" spellcheck="false" autocapitalize="off">${code}</textarea>
-                <div class="footer">
-                    <button type="submit">Save Script</button>
+            <div class="main-content">
+                <div class="header">
+                    <input type="text" value="${rawLink}" readonly onclick="this.select()">
                 </div>
-            </form>
+                <form id="editor-form" method="POST" action="/save">
+                    <input type="hidden" name="token" value="${token}">
+                    <input type="hidden" name="filename" value="${activeScript}">
+                    <textarea name="code" spellcheck="false">${code}</textarea>
+                    <div class="footer"><button type="submit">Save Changes</button></div>
+                </form>
+            </div>
         </div>
         <script>
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('status') === 'saved') {
+            if (new URLSearchParams(window.location.search).get('status') === 'saved') {
                 const notif = document.getElementById('notification');
                 notif.textContent = 'Script saved successfully!';
                 notif.style.display = 'block';
