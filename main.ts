@@ -1,11 +1,11 @@
-// main.ts (Final Movie App Version)
+// main.ts (Final Version based on User's Screenshot)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const MOVIES_PER_PAGE = 15;
 
-console.log("Movie App Server is starting...");
+console.log("Movie App Server (New Design) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -27,7 +27,6 @@ async function handler(req: Request): Promise<Response> {
         return new Response(getHomepageHTML(moviesForPage, page, totalPages), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     
-    // Movie Detail Page
     const moviePattern = new URLPattern({ pathname: "/movies/:slug" });
     if (moviePattern.exec(url)) {
         const slug = moviePattern.exec(url)!.pathname.groups.slug!;
@@ -36,34 +35,24 @@ async function handler(req: Request): Promise<Response> {
         return new Response(getMovieDetailPageHTML(result.value), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
-    // --- NEW: Video Stream Proxy Endpoint ---
     const streamPattern = new URLPattern({ pathname: "/stream/:slug" });
     if (streamPattern.exec(url)) {
         const slug = streamPattern.exec(url)!.pathname.groups.slug!;
         const result = await kv.get<any>(["movies", slug]);
         const originalVideoUrl = result.value?.watchUrl;
-
         if (!originalVideoUrl) return new Response("Video source not found", { status: 404 });
-        
         try {
             const range = req.headers.get("range");
             const headers = new Headers();
             if (range) { headers.set("range", range); }
-
             const videoResponse = await fetch(originalVideoUrl, { headers });
-            if (!videoResponse.ok || !videoResponse.body) {
-                return new Response("Failed to fetch video from source", { status: videoResponse.status });
-            }
-            
+            if (!videoResponse.ok || !videoResponse.body) return new Response("Failed to fetch video from source", { status: videoResponse.status });
             const responseHeaders = new Headers(videoResponse.headers);
             responseHeaders.set("Access-Control-Allow-Origin", "*");
             return new Response(videoResponse.body, { status: videoResponse.status, headers: responseHeaders });
-        } catch (error) {
-            return new Response("Error streaming video", { status: 500 });
-        }
+        } catch (error) { return new Response("Error streaming video", { status: 500 }); }
     }
 
-    // --- Admin Panel Routes ---
     if (pathname === "/admin-login") { return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });}
     if (pathname === "/admin") {
         if (searchParams.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
@@ -77,13 +66,18 @@ async function handler(req: Request): Promise<Response> {
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
         const slug = (formData.get("slug") as string || createSlug(formData.get("title") as string)).trim();
         const movieData = {
-            slug: slug,
+            slug,
             title: formData.get("title") as string,
             posterUrl: formData.get("posterUrl") as string,
+            year: formData.get("year") as string,
+            tags: formData.get("tags") as string,
+            quality: formData.get("quality") as string,
+            rating: formData.get("rating") as string,
+            country: formData.get("country") as string,
+            filesize: formData.get("filesize") as string,
             synopsis: formData.get("synopsis") as string,
             watchUrl: formData.get("watchUrl") as string,
             downloadUrl: formData.get("downloadUrl") as string,
-            screenshots: (formData.get("screenshots") as string).split('\n').filter(Boolean),
             createdAt: Date.now()
         };
         await kv.set(["movies", slug], movieData);
@@ -106,100 +100,94 @@ function createSlug(title: string): string {
 
 serve(handler);
 
-// --- HTML TEMPLATES ---
+// --- HTML Templates ---
 
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
     const movieCards = movies.length > 0 ? movies.map(movie => `
         <a href="/movies/${movie.slug}" class="movie-card">
             <img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy">
             <div class="movie-info"><h3>${movie.title}</h3></div>
-        </a>`).join('') : '<p>No movies have been added yet.</p>';
+        </a>`).join('') : '<p>No movies have been added yet. Please check back later.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
         paginationHTML += '<div class="pagination">';
-        if (currentPage > 1) { paginationHTML += `<a href="/?page=${currentPage - 1}" class="page-link">Previous</a>`; }
-        for (let i = 1; i <= totalPages; i++) { paginationHTML += `<a href="/?page=${i}" class="page-link ${i === currentPage ? 'active' : ''}">${i}</a>`; }
-        if (currentPage < totalPages) { paginationHTML += `<a href="/?page=${currentPage + 1}" class="page-link">Next</a>`; }
+        if (currentPage > 1) paginationHTML += `<a href="/?page=${currentPage - 1}" class="page-link">Previous</a>`;
+        for (let i = 1; i <= totalPages; i++) paginationHTML += `<a href="/?page=${i}" class="page-link ${i === currentPage ? 'active' : ''}">${i}</a>`;
+        if (currentPage < totalPages) paginationHTML += `<a href="/?page=${currentPage + 1}" class="page-link">Next</a>`;
         paginationHTML += '</div>';
     }
-    return `<!DOCTYPE html><html lang="my"><head><meta charset="UTF-8"><title>Lugi Kar Movies</title><style>
-        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;}
-        .container{max-width:1200px;margin:auto;padding:1rem 2rem;}
-        .header{text-align:center;margin:2rem 0;font-size:2rem;color:#58a6ff;}
-        .grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:1.5rem;}
-        .movie-card{display:block;text-decoration:none;color:inherit;background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;position:relative;transition:transform 0.2s;}
-        .movie-card:hover{transform:scale(1.05); z-index:10;}
-        .movie-card img{width:100%;height:auto;aspect-ratio:2/3;object-fit:cover;}
-        .movie-info{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,0.95) 20%,transparent);padding:2rem 1rem 1rem;}
-        .movie-info h3{margin:0;font-size:1rem;color:#fff;}
-        .pagination{display:flex;justify-content:center;gap:0.5rem;margin-top:3rem;}
-        .page-link{padding:0.5rem 1rem;background:#21262d;color:#c9d1d9;text-decoration:none;border-radius:5px;border:1px solid #30363d;}
-        .page-link.active{background:#58a6ff;color:#fff;font-weight:bold;}
-        @media(max-width: 500px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 1rem; } }
-    </style></head><body><div class="container"><header><h1>Lugi Kar Movies</h1></header><main><div class="grid">${movieCards}</div>${paginationHTML}</main></div></body></html>`;
+    return `<!DOCTYPE html><html lang="my"><head><meta charset="UTF-8"><title>Lugi Kar Movies</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;} .container{max-width:1200px;margin:auto;padding:1rem 2rem;} .header{text-align:center;margin:2rem 0;font-size:2rem;color:#58a6ff;} .grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:1.5rem;} .movie-card{display:block;text-decoration:none;color:inherit;background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;position:relative;transition:transform 0.2s;} .movie-card:hover{transform:scale(1.05); z-index:10;} .movie-card img{width:100%;height:auto;aspect-ratio:2/3;object-fit:cover;} .movie-info{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,0.95) 20%,transparent);padding:2rem 1rem 1rem;} .movie-info h3{margin:0;font-size:1rem;color:#fff;} .pagination{display:flex;justify-content:center;gap:0.5rem;margin-top:3rem;} .page-link{padding:0.5rem 1rem;background:#21262d;color:#c9d1d9;text-decoration:none;border-radius:5px;border:1px solid #30363d;} .page-link.active{background:#58a6ff;color:#fff;font-weight:bold;} @media(max-width: 500px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 1rem; } }</style></head><body><div class="container"><header><h1>Lugi Kar Movies</h1></header><main><div class="grid">${movieCards}</div>${paginationHTML}</main></div></body></html>`;
 }
 
 function getMovieDetailPageHTML(movie: any): string {
-    const screenshots = movie.screenshots.map((img: string) => `<img src="${img}" alt="Screenshot">`).join('');
     return `
     <!DOCTYPE html><html lang="my"><head><meta charset="UTF-8"><title>${movie.title}</title>
     <style>
-        :root{--bg:#0d1117;--card-bg:#161b22;--text:#c9d1d9;--title:#58a6ff;--btn-watch:#e53935;--btn-dl:#30363d;}
-        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);margin:0;line-height:1.7;}
-        .container{max-width:960px;margin:auto;padding:1rem 2rem;}
-        a.back-link{color:var(--title);text-decoration:none;display:inline-block;margin-bottom:1rem;}
-        .movie-header{display:grid;grid-template-columns:250px 1fr;gap:2rem;align-items:flex-start;}
+        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#333;margin:0;line-height:1.6;}
+        .container{max-width:800px;margin:auto;}
+        .header-bar{display:flex;justify-content:space-between;align-items:center;padding:1rem;}
+        .header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}
+        .main-content{padding:0 1rem 1rem;}
+        .movie-header{display:grid;grid-template-columns:150px 1fr;gap:1.5rem;align-items:flex-start;}
         .poster img{width:100%;border-radius:8px;}
-        .info h1{font-size:2rem;color:var(--title);margin-top:0;}
-        .synopsis{white-space:pre-wrap;opacity:0.9;}
-        .button-group{display:flex;gap:1rem;margin-top:1.5rem;}
-        .btn{padding:0.8rem 1.5rem;text-align:center;text-decoration:none;color:white;font-size:1rem;font-weight:bold;border-radius:5px;border:none;cursor:pointer;}
-        .watch-btn{background:var(--btn-watch);} .download-btn{background:var(--btn-dl);color:var(--text);}
-        .video-player-container{display:none;margin-top:2rem;background:#000;border-radius:8px;}
-        .video-player-container.active{display:block;}
-        video{width:100%;border-radius:8px;}
-        .screenshots{display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:1rem;margin-top:2rem;}
-        .screenshots img{width:100%;border-radius:5px;}
-        @media (max-width: 768px) { .movie-header{grid-template-columns:1fr;} .poster{max-width:250px;margin:0 auto 1.5rem;} }
+        .info h1{font-size:1.8rem;margin:0 0 0.5rem;}
+        .meta-info{display:flex;flex-wrap:wrap;gap:0.5rem 1rem;font-size:0.9rem;color:#666;margin-bottom:0.5rem;}
+        .quality-tag{background:#1a73e8;color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;}
+        .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-size:0.9rem;margin-top:1rem;}
+        .stat{display:flex;flex-direction:column;align-items:center;}
+        .stat-value{font-weight:600;}
+        .play-btn{width:100%;padding:1rem;margin:1.5rem 0;background:#e53935;color:white;font-size:1.2rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;}
+        .secondary-actions{display:flex;justify-content:space-around;text-align:center;}
+        .action-btn{text-decoration:none;color:#555;}
+        .action-btn svg{width:24px;height:24px;margin-bottom:0.2rem;}
+        .storyline{margin-top:2rem;}
+        .storyline h2{font-size:1.4rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}
+        .synopsis{white-space:pre-wrap;color:#555;}
+        .video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;}
+        .video-player-container.active{display:block;} video{width:100%;border-radius:8px;}
     </style>
     </head><body><div class="container">
-        <a href="/" class="back-link">&larr; Back to Home</a>
-        <div class="movie-header">
-            <div class="poster"><img src="${movie.posterUrl}" alt="${movie.title}"></div>
-            <div class="info">
-                <h1>${movie.title}</h1>
-                <h3>ဇာတ်လမ်းအကျဉ်း</h3><p class="synopsis">${movie.synopsis}</p>
-                <div class="button-group">
-                    <button id="watch-btn" class="btn watch-btn">Watch</button>
-                    <a href="${movie.downloadUrl || '#'}" class="btn download-btn">Download</a>
+        <header class="header-bar"><a href="/">&larr;</a><span>&nbsp;</span></header>
+        <div class="main-content">
+            <div class="movie-header">
+                <div class="poster"><img src="${movie.posterUrl}" alt="${movie.title}"></div>
+                <div class="info">
+                    <h1>${movie.title}</h1>
+                    <div class="meta-info"><span>${movie.year}</span><span>&bull;</span><span>${movie.tags}</span></div>
+                    <div class="quality-tag">${movie.quality}</div>
+                    <div class="stats-grid">
+                        <div class="stat"><span class="stat-value">⭐ ${movie.rating}</span></div>
+                        <div class="stat"><span class="stat-value">🇵🇭 ${movie.country}</span></div>
+                        <div class="stat"><span class="stat-value">💾 ${movie.filesize}</span></div>
+                    </div>
                 </div>
             </div>
+            <button id="play-btn" class="play-btn">▶ Play</button>
+            <div id="video-container" class="video-player-container">
+                <video id="movie-player" controls controlsList="nodownload" preload="metadata"></video>
+            </div>
+            <div class="secondary-actions">
+                <a href="#" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></a>
+                <a href="${movie.downloadUrl || '#'}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></a>
+            </div>
+            <div class="storyline">
+                <h2>Storyline</h2><p class="synopsis">${movie.synopsis}</p>
+            </div>
         </div>
-        <div id="video-container" class="video-player-container">
-            <video id="movie-player" controls controlsList="nodownload" preload="metadata" style="display:none;"></video>
-        </div>
-        <hr style="border-color:#30363d;margin:2rem 0;">
-        <h2>Screenshots</h2><div class="screenshots">${screenshots}</div>
     </div>
     <script>
-        const watchBtn = document.getElementById('watch-btn');
+        const playBtn = document.getElementById('play-btn');
         const videoContainer = document.getElementById('video-container');
         const player = document.getElementById('movie-player');
-
-        watchBtn.addEventListener('click', () => {
+        playBtn.addEventListener('click', () => {
             videoContainer.classList.toggle('active');
             if (videoContainer.classList.contains('active')) {
-                player.style.display = 'block';
-                if (!player.src) {
-                    // This is our proxy stream URL
-                    player.src = '/stream/${movie.slug}';
-                }
+                if (!player.src) { player.src = '/stream/${movie.slug}'; }
                 player.play();
-                watchBtn.textContent = 'Close Player';
+                playBtn.textContent = '■ Close Player';
             } else {
                 player.pause();
-                player.style.display = 'none';
-                watchBtn.textContent = 'Watch';
+                playBtn.textContent = '▶ Play';
             }
         });
     </script></body></html>`;
@@ -211,11 +199,23 @@ function getLoginPageHTML(): string {
 
 function getAdminPageHTML(movies: any[], token: string): string {
     const movieRows = movies.map(movie=>`<tr><td>${movie.title}</td><td><a href="/movies/${movie.slug}" target="_blank">View</a></td><td><form action="/delete-movie" method="POST"><input type="hidden" name="token" value="${token}"><input type="hidden" name="slug" value="${movie.slug}"><button type="submit">Delete</button></form></td></tr>`).join('');
-    return `<!DOCTYPE html><html><head><title>Admin Dashboard</title><style>body{font-family:sans-serif;padding:2rem;background:#f8f9fa;color:#212529;} .container{max-width:960px;margin:auto;} .form-container{background:white;padding:2rem;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.1);} form, .form-group{display:flex;flex-direction:column;margin-bottom:1rem;}input,textarea{padding:0.5rem;margin-bottom:0.5rem;border:1px solid #ced4da;border-radius:4px;}table{width:100%;border-collapse:collapse;margin-top:2rem;}th,td{border:1px solid #dee2e6;padding:0.8rem;text-align:left;} .notification{padding:1rem;margin-bottom:1rem;border-radius:4px;display:none;} .success{background:#d4edda;color:#155724;border-color:#c3e6cb;}</style></head><body>
-    <div class="container"><div id="notification" class="notification"></div><div class="form-container"><h1>Admin Dashboard</h1><h2>Add/Edit Movie</h2><form action="/save-movie" method="POST"><input type="hidden" name="token" value="${token}"><label>Slug (auto-generated if empty):</label><input type="text" name="slug"><label>Title:</label><input type="text" name="title" required><label>Poster URL:</label><input type="text" name="posterUrl" required><label>Synopsis:</label><textarea name="synopsis" rows="5" required></textarea>
-    <label>Watch URL (Direct MP4 or your generated link):</label><input type="text" name="watchUrl" required>
-    <label>Download URL:</label><input type="text" name="downloadUrl">
-    <label>Screenshot URLs (one per line):</label><textarea name="screenshots" rows="3"></textarea><button type="submit">Save Movie</button></form></div>
+    return `<!DOCTYPE html><html><head><title>Admin Dashboard</title><style>body{font-family:sans-serif;padding:2rem;background:#f8f9fa;color:#212529;} .container{max-width:960px;margin:auto;} .form-container{background:white;padding:2rem;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,.1);} form{display:grid;grid-template-columns:1fr 1fr;gap:1rem;} label{font-weight:bold;margin-bottom:0.2rem;grid-column:1/-1;} input,textarea{width:100%;padding:0.5rem;border:1px solid #ced4da;border-radius:4px;} .full-width{grid-column:1/-1;} table{width:100%;border-collapse:collapse;margin-top:2rem;}th,td{border:1px solid #dee2e6;padding:0.8rem;text-align:left;} .notification{padding:1rem;margin-bottom:1rem;border-radius:4px;display:none;} .success{background:#d4edda;color:#155724;}</style></head><body>
+    <div class="container"><div id="notification" class="notification"></div><div class="form-container"><h1>Admin Dashboard</h1><h2>Add/Edit Movie</h2>
+    <form action="/save-movie" method="POST">
+        <input type="hidden" name="token" value="${token}">
+        <div class="full-width"><label>Title:</label><input type="text" name="title" required></div>
+        <div class="full-width"><label>Poster URL:</label><input type="text" name="posterUrl" required></div>
+        <div><label>Year:</label><input type="text" name="year"></div>
+        <div><label>Tags (e.g., Horror, Thriller):</label><input type="text" name="tags"></div>
+        <div><label>Quality (e.g., Web-dl 1080p):</label><input type="text" name="quality"></div>
+        <div><label>Rating (e.g., 5.6 / 10):</label><input type="text" name="rating"></div>
+        <div><label>Country (e.g., philippines):</label><input type="text" name="country"></div>
+        <div><label>Filesize (e.g., 1.3 GB):</label><input type="text" name="filesize"></div>
+        <div class="full-width"><label>Synopsis:</label><textarea name="synopsis" rows="5" required></textarea></div>
+        <div class="full-width"><label>Watch URL (Direct or Proxy Link):</label><input type="text" name="watchUrl" required></div>
+        <div class="full-width"><label>Download URL:</label><input type="text" name="downloadUrl"></div>
+        <div class="full-width"><button type="submit">Save Movie</button></div>
+    </form></div>
     <h2>Existing Movies</h2><table><thead><tr><th>Title</th><th>View</th><th>Action</th></tr></thead><tbody>${movieRows}</tbody></table></div>
     <script>const u=new URLSearchParams(window.location.search);if(u.get('status')==='saved'){const n=document.getElementById('notification');n.textContent='Movie saved successfully!';n.className='notification success';n.style.display='block';setTimeout(()=>{n.style.display='none';},3000);}</script>
     </body></html>`;
