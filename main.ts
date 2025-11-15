@@ -1,4 +1,4 @@
-// main.ts (Final Cleaned and Corrected Version)
+// main.ts (Final Version with New Admin UI)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { getCookies, setCookie } from "https://deno.land/std@0.224.0/http/cookie.ts";
 
@@ -6,7 +6,7 @@ const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const MOVIES_PER_PAGE = 15;
 
-console.log("Movie App Server (Final Fix) is starting...");
+console.log("Movie App Server (New Admin UI) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -14,7 +14,8 @@ async function handler(req: Request): Promise<Response> {
     const method = req.method;
     const cookies = getCookies(req.headers);
 
-    // --- PREMIUM KEY ACTIVATION ---
+    // This handler logic remains the same, the main change is in getAdminPageHTML
+    // ... (All handler logic from previous correct version)
     const premiumKeyParam = searchParams.get("premium_key");
     if (premiumKeyParam) {
         const keyEntry = await kv.get(["keys", premiumKeyParam]);
@@ -28,11 +29,9 @@ async function handler(req: Request): Promise<Response> {
             return Response.redirect(`${url.origin}/?error=invalid_key`, 302);
         }
     }
-
     const sessionToken = cookies.session_token;
     let hasPremiumAccess = false;
     let premiumKeyInfo: any = null;
-
     if (sessionToken) {
         const sessionResult = await kv.get<{ premiumKey: string }>(["sessions", sessionToken]);
         if (sessionResult.value) {
@@ -43,8 +42,6 @@ async function handler(req: Request): Promise<Response> {
             }
         }
     }
-
-    // --- PUBLIC ROUTES ---
     if (pathname === "/") {
         const page = parseInt(searchParams.get("page") || "1", 10) || 1;
         const moviesIterator = kv.list({ prefix: ["movies"] });
@@ -56,7 +53,6 @@ async function handler(req: Request): Promise<Response> {
         const moviesForPage = allMovies.slice(startIndex, startIndex + MOVIES_PER_PAGE);
         return new Response(getHomepageHTML(moviesForPage, page, totalPages), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
-    
     const moviePattern = new URLPattern({ pathname: "/movies/:slug" });
     if (moviePattern.exec(url)) {
         const slug = moviePattern.exec(url)!.pathname.groups.slug!;
@@ -64,8 +60,6 @@ async function handler(req: Request): Promise<Response> {
         if (!result.value) return new Response("Movie not found", { status: 404 });
         return new Response(getMovieDetailPageHTML(result.value, hasPremiumAccess, premiumKeyInfo), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
-
-    // --- PROTECTED ROUTES ---
     const streamPattern = new URLPattern({ pathname: "/stream/:slug" });
     if (streamPattern.exec(url)) {
         if (!hasPremiumAccess) return new Response("Premium access required.", { status: 403 });
@@ -84,8 +78,6 @@ async function handler(req: Request): Promise<Response> {
             return new Response(videoResponse.body, { status: videoResponse.status, headers: responseHeaders });
         } catch (error) { return new Response("Error streaming video", { status: 500 }); }
     }
-
-    // --- API ROUTES ---
     if (pathname === "/api/activate-key" && method === "POST") {
         try {
             const { key } = await req.json();
@@ -96,15 +88,9 @@ async function handler(req: Request): Promise<Response> {
                 const headers = new Headers({ "Content-Type": "application/json" });
                 setCookie(headers, { name: "session_token", value: sessionToken, maxAge: 365 * 24 * 60 * 60, path: "/", httpOnly: true, secure: true });
                 return new Response(JSON.stringify({ success: true, message: "Key activated successfully!" }), { headers });
-            } else {
-                return new Response(JSON.stringify({ success: false, message: "Invalid or expired key." }), { status: 400 });
-            }
-        } catch {
-            return new Response(JSON.stringify({ success: false, message: "Invalid request." }), { status: 400 });
-        }
+            } else { return new Response(JSON.stringify({ success: false, message: "Invalid or expired key." }), { status: 400 }); }
+        } catch { return new Response(JSON.stringify({ success: false, message: "Invalid request." }), { status: 400 }); }
     }
-
-    // --- ADMIN ROUTES ---
     if (pathname === "/admin-login") { return new Response(getLoginPageHTML()); }
     if (pathname === "/admin") {
         if (searchParams.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
@@ -146,7 +132,10 @@ function createSlug(title: string): string {
 
 serve(handler);
 
+// --- TEMPLATE FUNCTIONS ---
+
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
+    // This function is correct and remains unchanged.
     const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
@@ -160,66 +149,12 @@ function getHomepageHTML(movies: any[], currentPage: number, totalPages: number)
 }
 
 function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): string {
+    // This function remains correct and unchanged.
     const premiumStatusHTML = hasAccess ? `<div class="premium-status success">Premium Active! Expires on: ${new Date(keyInfo.expiryDate).toLocaleDateString()}</div>` : `<div class="premium-status required" onclick="showModal()">Premium Required</div>`;
-    
     return `
-    <!DOCTYPE html><html lang="my"><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${movie.title || 'Movie'}</title>
-    <style>
-        :root{--bg-color:#fff;--text-color:#3c4043;--title-color:#202124;--red-btn:#d93025;--blue-tag:#1a73e8;--meta-text:#5f6368;}
-        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-color);color:var(--text-color);margin:0;line-height:1.6;}
-        .container{max-width:800px;margin:auto;}
-        .header-bar{display:flex;padding:1rem;}.header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}
-        .main-content{padding:0 1rem 1rem;}
-        .movie-header{display:flex;flex-direction:row;gap:1.2rem;align-items:flex-start;}
-        .poster{width:140px;flex-shrink:0;}
-        .poster img{width:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);}
-        .info{display:flex;flex-direction:column;min-width:0;}
-        .info h1{font-size:1.6rem;margin:0 0 0.5rem;color:var(--title-color);}
-        .meta-info{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.9rem;color:var(--meta-text);margin-bottom:0.8rem;}
-        .quality-tag{background:var(--blue-tag);color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;font-weight:500;}
-        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(80px, 1fr));gap:1rem;font-size:0.9rem;margin-top:1rem;color:#555;}
-        .stat{display:flex;align-items:center;gap:0.4rem;}.stat-value{font-weight:600;}
-        .premium-status{padding:0.5rem;text-align:center;border-radius:4px;margin-top:1rem;font-weight:bold;}.premium-status.required{background:#eee;color:#333;cursor:pointer;}.premium-status.success{background:#d4edda;color:#155724;}
-        .play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:var(--red-btn);color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;}
-        .secondary-actions{display:flex;justify-content:space-around;text-align:center;padding:1rem 0;border-top:1px solid #eee;border-bottom:1px solid #eee;}
-        .action-btn{text-decoration:none;color:#555;display:flex;flex-direction:column;align-items:center;gap:0.2rem;cursor:pointer;}
-        .action-btn svg{width:24px;height:24px;}
-        .storyline{margin-top:2rem;} .storyline h2{font-size:1.3rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}
-        .synopsis{white-space:pre-wrap;color:#555;margin:0;}
-        .video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;} video{width:100%;border-radius:8px;outline:none;}
-        .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:center;}
-        .modal-content{background:#fff;padding:2rem;border-radius:8px;width:90%;max-width:400px;text-align:center;}
-        @media(max-width:480px){.movie-header{flex-direction:column;align-items:center;text-align:center;}.info{align-items:center;}}
-    </style>
-    </head><body><div class="container">
-        <header class="header-bar"><a href="/">&larr;</a></header>
-        <div class="main-content">
-            <div class="movie-header">
-                <div class="poster"><img src="${movie.posterUrl || ''}" alt="${movie.title || ''}"></div>
-                <div class="info">
-                    <h1>${movie.title || 'N/A'}</h1>
-                    <div class="meta-info"><span>${movie.year || ''}</span> &bull; <span>${movie.tags || ''}</span></div>
-                    <div class="quality-tag">${movie.quality || ''}</div>
-                    <div class="stats-grid">
-                        <div class="stat">⭐<span class="stat-value">${movie.rating || 'N/A'}</span></div>
-                        <div class="stat">🇵🇭<span class="stat-value">${movie.country || 'N/A'}</span></div>
-                        <div class="stat">💾<span class="stat-value">${movie.filesize || 'N/A'}</span></div>
-                    </div>
-                </div>
-            </div>
-            ${premiumStatusHTML}
-            <button id="play-btn" class="play-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play</button>
-            <div id="video-container" style="display:none;"><video id="movie-player" controls controlsList="nodownload" preload="metadata"></video></div>
-            <div class="secondary-actions">
-                <div class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></div>
-                <div id="download-btn" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></div>
-            </div>
-            <div class="storyline"><h2>Storyline</h2><p class="synopsis">${movie.synopsis || ''}</p></div>
-        </div>
-        <div class="modal-overlay" id="premium-modal"><div class="modal-content"><span onclick="this.parentElement.parentElement.style.display='none'" style="float:right;cursor:pointer;">&times;</span><h3>Premium Key လိုအပ်သည်</h3><p>Premium အသုံးပြုခွင့်ရရန် သင်၏ key ကိုထည့်သွင်းပါ။</p><input type="text" id="key-input" placeholder="LUGI-KEY-XXXXXX" style="width:100%;padding:0.5rem;margin:1rem 0;"><button id="activate-btn" class="play-btn">Activate Key</button><p id="modal-message"></p></div></div>
-    </div>
+    <!DOCTYPE html><html lang="my"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>${movie.title || 'Movie'}</title>
+    <style>:root{--bg-color:#fff;--text-color:#3c4043;--title-color:#202124;--red-btn:#d93025;--blue-tag:#1a73e8;--meta-text:#5f6368;}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-color);color:var(--text-color);margin:0;line-height:1.6;}.container{max-width:800px;margin:auto;}.header-bar{display:flex;padding:1rem;}.header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}.main-content{padding:0 1rem 1rem;}.movie-header{display:flex;flex-direction:row;gap:1.2rem;align-items:flex-start;}.poster{width:140px;flex-shrink:0;}.poster img{width:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);}.info{display:flex;flex-direction:column;min-width:0;}.info h1{font-size:1.6rem;margin:0 0 0.5rem;color:var(--title-color);}.meta-info{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.9rem;color:var(--meta-text);margin-bottom:0.8rem;}.quality-tag{background:var(--blue-tag);color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;font-weight:500;}.stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(80px, 1fr));gap:1rem;font-size:0.9rem;margin-top:1rem;color:#555;}.stat{display:flex;align-items:center;gap:0.4rem;}.stat-value{font-weight:600;}.premium-status{padding:0.5rem;text-align:center;border-radius:4px;margin-top:1rem;font-weight:bold;}.premium-status.required{background:#eee;color:#333;cursor:pointer;}.premium-status.success{background:#d4edda;color:#155724;}.play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:var(--red-btn);color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;}.secondary-actions{display:flex;justify-content:space-around;text-align:center;padding:1rem 0;border-top:1px solid #eee;border-bottom:1px solid #eee;}.action-btn{text-decoration:none;color:#555;display:flex;flex-direction:column;align-items:center;gap:0.2rem;cursor:pointer;}.action-btn svg{width:24px;height:24px;}.storyline{margin-top:2rem;} .storyline h2{font-size:1.3rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}.synopsis{white-space:pre-wrap;color:#555;margin:0;}.video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;} video{width:100%;border-radius:8px;outline:none;}.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:center;}.modal-content{background:#fff;padding:2rem;border-radius:8px;width:90%;max-width:400px;text-align:center;}@media(max-width:480px){.movie-header{flex-direction:column;align-items:center;text-align:center;}.info{align-items:center;}}</style>
+    </head><body><div class="container"><header class="header-bar"><a href="/">&larr;</a></header><div class="main-content"><div class="movie-header"><div class="poster"><img src="${movie.posterUrl || ''}" alt="${movie.title || ''}"></div><div class="info"><h1>${movie.title || 'N/A'}</h1><div class="meta-info"><span>${movie.year || ''}</span> &bull; <span>${movie.tags || ''}</span></div><div class="quality-tag">${movie.quality || ''}</div><div class="stats-grid"><div class="stat">⭐<span class="stat-value">${movie.rating || 'N/A'}</span></div><div class="stat">🇵🇭<span class="stat-value">${movie.country || 'N/A'}</span></div><div class="stat">💾<span class="stat-value">${movie.filesize || 'N/A'}</span></div></div></div></div>${premiumStatusHTML}<button id="play-btn" class="play-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play</button><div id="video-container" style="display:none;"><video id="movie-player" controls controlsList="nodownload" preload="metadata"></video></div><div class="secondary-actions"><div class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></div><div id="download-btn" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></div></div><div class="storyline"><h2>Storyline</h2><p class="synopsis">${movie.synopsis || ''}</p></div></div><div class="modal-overlay" id="premium-modal"><div class="modal-content"><span onclick="this.parentElement.parentElement.style.display='none'" style="float:right;cursor:pointer;">&times;</span><h3>Premium Key လိုအပ်သည်</h3><p>Premium အသုံးပြုခွင့်ရရန် သင်၏ key ကိုထည့်သွင်းပါ။</p><input type="text" id="key-input" placeholder="LUGI-KEY-XXXXXX" style="width:100%;padding:0.5rem;margin:1rem 0;"><button id="activate-btn" class="play-btn">Activate Key</button><p id="modal-message"></p></div></div></div>
     <script>
         const hasAccess = ${hasAccess};
         function showModal() { document.getElementById('premium-modal').style.display='flex'; }
@@ -254,10 +189,34 @@ function getLoginPageHTML(): string {
 }
 
 function getAdminPageHTML(data: { movies: any[], keys: any[] }, token: string): string {
-    const movieRows = data.movies.map(m => `<tr><td>${m.title}</td><td><a href="/movies/${m.slug}" target="_blank">View</a></td><td><form method="POST" onsubmit="return confirm('Delete movie?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="slug" value="${m.slug}"><button formaction="/delete-movie">Delete</button></form></td></tr>`).join('');
-    const keyRows = data.keys.map(k => `<tr><td><code>${k.key}</code></td><td>${k.user}</td><td>${new Date(k.expiryDate).toLocaleDateString()}</td><td><form method="POST" onsubmit="return confirm('Delete key?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="key" value="${k.key}"><button formaction="/delete-key">Delete</button></form></td></tr>`).join('');
-    return `<!DOCTYPE html><html><head><title>Admin Dashboard</title><style>body{font-family:sans-serif;padding:2rem;background:#f8f9fa;} .container{max-width:1000px;margin:auto;} .tabs{display:flex;gap:1rem;border-bottom:1px solid #ccc;margin-bottom:1rem;} .tab{padding:0.5rem 1rem;cursor:pointer;} .tab.active{border:1px solid #ccc;border-bottom:1px solid #f8f9fa;background:#f8f9fa;} .panel{display:none;} .panel.active{display:block;} form{display:grid;grid-template-columns:1fr 1fr;gap:1rem;} label{font-weight:bold;margin-bottom:0.2rem;grid-column:1/-1;} input,textarea{width:100%;padding:0.5rem;border:1px solid #ced4da;border-radius:4px;} .full-width{grid-column:1/-1;} table{width:100%;border-collapse:collapse;margin-top:1rem;}th,td{border:1px solid #ccc;padding:0.5rem;}</style></head><body>
+    const movieRows = data.movies.map(m => `<tr><td>${m.title}</td><td><a href="/movies/${m.slug}" target="_blank">View</a></td><td><form method="POST" onsubmit="return confirm('Delete this movie?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="slug" value="${m.slug}"><button formaction="/delete-movie">Delete</button></form></td></tr>`).join('');
+    const keyRows = data.keys.map(k => `<tr><td><code>${k.key}</code></td><td>${k.user}</td><td>${new Date((k as any).expiryDate).toLocaleDateString()}</td><td><form method="POST" onsubmit="return confirm('Delete this key?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="key" value="${k.key}"><button formaction="/delete-key">Delete</button></form></td></tr>`).join('');
+    return `<!DOCTYPE html><html><head><title>Admin Dashboard</title>
+    <style>
+        body{font-family:sans-serif;padding:2rem;background:#0d1117;color:#c9d1d9;} 
+        .container{max-width:1000px;margin:auto;}
+        h1,h2 { color: #58a6ff; }
+        .tabs{display:flex;gap:1rem;border-bottom:1px solid #30363d;margin-bottom:1rem;} 
+        .tab{padding:0.5rem 1rem;cursor:pointer;border-radius:5px 5px 0 0;} 
+        .tab.active{border:1px solid #30363d;border-bottom:1px solid #161b22;background:#161b22;} 
+        .panel{display:none;background:#161b22;padding:2rem;border:1px solid #30363d;border-top:none;border-radius:0 0 8px 8px;} 
+        .panel.active{display:block;} 
+        form{display:grid;grid-template-columns:1fr 1fr;gap:1rem;} 
+        label{font-weight:bold;margin-bottom:0.2rem;grid-column:1/-1;color:#8b949e;} 
+        input,textarea{width:100%;padding:0.8rem;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-family:inherit;font-size:1rem;}
+        input:focus, textarea:focus { border-color: #58a6ff; outline: none; }
+        .full-width{grid-column:1/-1;} 
+        button { background:#238636;color:white;font-weight:bold;padding:0.8rem 1.2rem;border:none;border-radius:6px;cursor:pointer; }
+        table{width:100%;border-collapse:collapse;margin-top:1rem;}
+        th,td{border:1px solid #30363d;padding:0.8rem;text-align:left;}
+        th { background: #21262d; }
+        code { background: #333; padding: 0.2rem 0.4rem; border-radius: 4px; }
+        .notification{padding:1rem;margin-bottom:1rem;border-radius:4px;display:none;} 
+        .success{background:#d4edda;color:#155724;}
+    </style>
+    </head><body>
     <div class="container"><h1>Admin Dashboard</h1><div class="tabs"><div class="tab active" onclick="showTab('movies')">Movies</div><div class="tab" onclick="showTab('keys')">Premium Keys</div></div>
+    <div id="notification" class="notification"></div>
     <div id="movies" class="panel active">
         <h2>Add Movie</h2><form action="/save-movie" method="POST"><input type="hidden" name="token" value="${token}">
         <div class="full-width"><label>Title:</label><input type="text" name="title" required></div>
@@ -275,6 +234,6 @@ function getAdminPageHTML(data: { movies: any[], keys: any[] }, token: string): 
         <h2>Generate Key</h2><form action="/generate-key" method="POST"><input type="hidden" name="token" value="${token}"><label>User/Note:</label><input type="text" name="user"><label>Duration (days):</label><input type="number" name="duration" value="30"><button type="submit">Generate Key</button></form>
         <h2>Active Keys</h2><table><thead><tr><th>Key</th><th>User</th><th>Expires On</th><th>Action</th></tr></thead><tbody>${keyRows}</tbody></table>
     </div></div>
-    <script>function showTab(t){document.querySelectorAll('.panel,.tab').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');event.currentTarget.classList.add('active');window.location.hash=t;}if(window.location.hash){showTab(window.location.hash.substring(1));}</script>
+    <script>function showTab(t){document.querySelectorAll('.panel,.tab').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');event.currentTarget.classList.add('active');window.location.hash=t;} const u=new URLSearchParams(window.location.search); if(u.get('status')==='saved' || u.get('status')==='deleted'){const n=document.getElementById('notification');n.textContent='Action completed successfully!';n.className='notification success';n.style.display='block';setTimeout(()=>{n.style.display='none';},3000);} if(window.location.hash){showTab(window.location.hash.substring(1));}</script>
     </body></html>`;
 }
