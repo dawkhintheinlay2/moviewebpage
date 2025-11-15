@@ -1,11 +1,11 @@
-// main.ts (Final Version with Create Script Fix)
+// main.ts (Final Form Submission Fix)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const CHUNK_SIZE = 64000;
 
-console.log("Multi-Repo Code Hosting Service (Create Fix) is starting...");
+console.log("Code Hosting Service (Form Fix) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -13,95 +13,70 @@ async function handler(req: Request): Promise<Response> {
     const method = req.method;
 
     const rawPattern = new URLPattern({ pathname: "/raw/:filename" });
-    const rawMatch = rawPattern.exec(url);
-    if (rawMatch) {
-        const filename = rawMatch.pathname.groups.filename!;
+    if (rawPattern.exec(url)) {
+        const filename = rawPattern.exec(url)!.pathname.groups.filename!;
         const scriptIterator = kv.list<string>({ prefix: ["scripts", filename] });
         const chunks = [];
-        for await (const entry of scriptIterator) {
-            chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value });
-        }
+        for await (const entry of scriptIterator) { chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value }); }
         if (chunks.length === 0) return new Response("Script not found.", { status: 404 });
-        
         chunks.sort((a, b) => a.index - b.index);
         const fullCode = chunks.map(c => c.value).join('');
-
         return new Response(fullCode, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (pathname === "/" || pathname === "/admin-login") {
-         if (searchParams.get("token") === ADMIN_TOKEN) {
-            return Response.redirect(`${url.origin}/editor?token=${ADMIN_TOKEN}`, 302);
-         }
+         if (searchParams.get("token") === ADMIN_TOKEN) { return Response.redirect(`${url.origin}/editor?token=${ADMIN_TOKEN}`); }
          return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     
     if (pathname === "/editor") {
-        if (searchParams.get("token") !== ADMIN_TOKEN) {
-            return new Response("Forbidden: Invalid Admin Token.", { status: 403 });
-        }
-        
+        if (searchParams.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
         const scriptIterator = kv.list({ prefix: ["scripts"] });
         const scriptNames = new Set<string>();
         for await (const entry of scriptIterator) { scriptNames.add(entry.key[1] as string); }
-
         let activeScript = searchParams.get("file") || "main.ts";
-        if (scriptNames.size > 0 && !scriptNames.has(activeScript)) {
-            activeScript = scriptNames.values().next().value;
+        if (scriptNames.size === 0) {
+            await kv.set(["scripts", "main.ts", "chunk_0"], `// Welcome! This is your first script.`);
+            scriptNames.add("main.ts");
         }
-        
+        if (!scriptNames.has(activeScript)) { activeScript = scriptNames.values().next().value; }
         const chunkIterator = kv.list<string>({ prefix: ["scripts", activeScript] });
         const chunks = [];
-        for await (const entry of chunkIterator) {
-             chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value });
-        }
+        for await (const entry of chunkIterator) { chunks.push({ index: parseInt(entry.key.at(-1)!.toString().split('_').pop()!), value: entry.value });}
         chunks.sort((a, b) => a.index - b.index);
-        const currentCode = chunks.map(c => c.value).join('') || `// Welcome to ${activeScript}! Create your first script if this is empty.`;
-
+        const currentCode = chunks.map(c => c.value).join('');
         return new Response(getEditorPageHTML(currentCode, Array.from(scriptNames), activeScript, ADMIN_TOKEN, url.origin), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
     if (pathname === "/save" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
-        
         const code = formData.get("code") as string;
         const filename = formData.get("filename") as string;
-        
         const oldChunks = kv.list({ prefix: ["scripts", filename] });
         for await (const chunk of oldChunks) { await kv.delete(chunk.key); }
-
         if (code) {
             for (let i = 0; i * CHUNK_SIZE < code.length; i++) {
                 const chunkContent = code.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
                 await kv.set(["scripts", filename, `chunk_${i}`], chunkContent);
             }
-        } else {
-            // If code is empty, save one empty chunk to keep the file entry
-            await kv.set(["scripts", filename, `chunk_0`], "");
-        }
-
+        } else { await kv.set(["scripts", filename, `chunk_0`], ""); }
         return Response.redirect(`/editor?token=${ADMIN_TOKEN}&file=${filename}&status=saved`, 302);
     }
     
-    // --- THIS IS THE FIX ---
     if (pathname === "/create-script" && method === "POST") {
         const formData = await req.formData();
         const token = formData.get("token") as string;
         if (token !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
-        
         const newFilename = (formData.get("newFilename") as string).trim();
         if (newFilename) {
-            // Check if it already exists
             const existing = await kv.get(["scripts", newFilename, "chunk_0"]);
             if (existing.value === null) {
                 await kv.set(["scripts", newFilename, `chunk_0`], `// New script created: ${newFilename}`);
             }
         }
-        // Redirect to the new script editor page WITH the token
         return Response.redirect(`/editor?token=${token}&file=${newFilename}`, 302);
     }
-    // --- END OF FIX ---
     
     return new Response("Not Found", { status: 404 });
 }
@@ -129,7 +104,7 @@ function getEditorPageHTML(code: string, scriptNames: string[], activeScript: st
         .sidebar ul a.active, .sidebar ul a:hover { background: #3a3d41; color: white; }
         .new-script-form { margin-top: auto; }
         .new-script-form input { width: 100%; box-sizing: border-box; padding: 0.5rem; background: #333; border: 1px solid #444; color: #eee; border-radius: 4px; margin-bottom: 0.5rem; }
-        .new-script-form button { width: 100%; padding: 0.5rem; background: #0e639c; color: white; border: none; border-radius: 4px; }
+        .new-script-form button { width: 100%; padding: 0.5rem; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer; }
         .main-content { flex-grow: 1; display: flex; flex-direction: column; }
         .header { padding: 1rem; background: #252526; }
         .header input { width: 100%; box-sizing: border-box; background: #333; color: #eee; border: 1px solid #444; padding: 0.5rem; border-radius: 4px; }
