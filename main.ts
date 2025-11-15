@@ -1,4 +1,4 @@
-// main.ts (Final Complete Version with All Fixes)
+// main.ts (Final Version with Premium System & All Fixes)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { getCookies, setCookie } from "https://deno.land/std@0.224.0/http/cookie.ts";
 
@@ -147,7 +147,7 @@ function createSlug(title: string): string {
 serve(handler);
 
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
-    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet.</p>';
+    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet. Please check back later.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
         paginationHTML += '<div class="pagination">';
@@ -177,7 +177,6 @@ function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): s
             player.play();
             btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg> Close Player';
         }` : `document.getElementById('premium-modal').style.display='flex';`;
-
     const downloadAction = hasAccess ? `location.href='${movie.downloadUrl || '#'}'` : `document.getElementById('premium-modal').style.display='flex';`;
     const premiumStatusHTML = hasAccess ? `<div class="premium-status success">Premium Active! Expires on: ${new Date(keyInfo.expiryDate).toLocaleDateString()}</div>` : `<div class="premium-status required" onclick="document.getElementById('premium-modal').style.display='flex'">Premium Required</div>`;
 
@@ -206,11 +205,7 @@ function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): s
         .action-btn{text-decoration:none;color:#555;display:flex;flex-direction:column;align-items:center;gap:0.2rem;cursor:pointer;}
         .action-btn svg{width:24px;height:24px;}
         .storyline{margin-top:2rem;} .storyline h2{font-size:1.3rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}
-        .synopsis-container{max-height:100px;overflow:hidden;position:relative;transition:max-height 0.5s ease-in-out;}
-        .synopsis-container.expanded{max-height:1000px;}
-        .synopsis-container.expanded::after{display:none;}
         .synopsis{white-space:pre-wrap;color:#555;margin:0;}
-        .read-more-btn{background:none;border:none;color:#1a73e8;font-weight:bold;cursor:pointer;padding:0.5rem 0;}
         .video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;} video{width:100%;border-radius:8px;outline:none;}
         .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:center;}
         .modal-content{background:#fff;padding:2rem;border-radius:8px;width:90%;max-width:400px;text-align:center;}
@@ -239,18 +234,12 @@ function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): s
                 <div class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></div>
                 <div onclick="${downloadAction}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></div>
             </div>
-            <div class="storyline">
-                <h2>Storyline</h2>
-                <div class="synopsis-container" id="synopsis-container"><p class="synopsis">${movie.synopsis || ''}</p></div>
-                <button id="read-more-btn" class="read-more-btn" style="display:none;">Read More</button>
-            </div>
+            <div class="storyline"><h2>Storyline</h2><p class="synopsis">${movie.synopsis || ''}</p></div>
         </div>
         <div class="modal-overlay" id="premium-modal"><div class="modal-content"><span onclick="this.parentElement.parentElement.style.display='none'" style="float:right;cursor:pointer;">&times;</span><h3>Premium Key လိုအပ်သည်</h3><p>Premium အသုံးပြုခွင့်ရရန် သင်၏ key ကိုထည့်သွင်းပါ။</p><input type="text" id="key-input" placeholder="LUGI-KEY-XXXXXX" style="width:100%;padding:0.5rem;margin:1rem 0;"><button id="activate-btn" class="play-btn">Activate Key</button><p id="modal-message"></p></div></div>
     </div>
     <script>
         document.getElementById('activate-btn').addEventListener('click',async()=>{const k=document.getElementById('key-input').value,m=document.getElementById('modal-message');m.textContent='Activating...';const r=await fetch('/api/activate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})}),d=await r.json();if(d.success){m.textContent='Success! Reloading...';setTimeout(()=>window.location.reload(),1e3)}else{m.textContent=d.message||'Activation failed.';}});
-        const synopsisContainer=document.getElementById('synopsis-container');const readMoreBtn=document.getElementById('read-more-btn');
-        if(synopsisContainer.scrollHeight > 102){readMoreBtn.style.display='block';readMoreBtn.addEventListener('click',()=>{synopsisContainer.classList.toggle('expanded');readMoreBtn.textContent=synopsisContainer.classList.contains('expanded')?'Read Less':'Read More';});}
     </script></body></html>`;
 }
 
@@ -283,4 +272,3 @@ function getAdminPageHTML(data: { movies: any[], keys: any[] }, token: string): 
     <script>function showTab(t){document.querySelectorAll('.panel,.tab').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');event.currentTarget.classList.add('active');window.location.hash=t;} if(window.location.hash){showTab(window.location.hash.substring(1));}</script>
     </body></html>`;
 }
-[done]
