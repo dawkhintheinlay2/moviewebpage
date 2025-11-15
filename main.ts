@@ -1,25 +1,35 @@
-// main.ts (Deno-Powered Code Hosting Service - FINAL FIX)
+// main.ts (Final Fix for Save & Raw Download)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 
-console.log("Deno Code Hosting Service (Fixed) is starting...");
+console.log("Deno Code Hosting Service (Final Fix) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const { pathname, searchParams } = url;
     const method = req.method;
 
+    // The raw endpoint for serving the script
     const rawPattern = new URLPattern({ pathname: "/raw/:filename" });
     const rawMatch = rawPattern.exec(url);
     if (rawMatch) {
         const filename = rawMatch.pathname.groups.filename;
         const result = await kv.get<string>(["scripts", filename]);
-        if (!result.value) { return new Response("Script not found.", { status: 404 }); }
-        return new Response(result.value, { headers: { "Content-Type": "application/typescript; charset=utf-8" } });
+
+        if (!result.value) {
+            return new Response("Script not found.", { status: 404 });
+        }
+        
+        // --- FIX #2: Change Content-Type to text/plain ---
+        // This tells the browser to display the content as plain text, not download it.
+        return new Response(result.value, {
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
     }
 
+    // Admin login page and redirection
     if (pathname === "/" || pathname === "/admin-login") {
          if (searchParams.get("token") === ADMIN_TOKEN) {
             return Response.redirect(`${url.origin}/editor?token=${ADMIN_TOKEN}`, 302);
@@ -27,6 +37,7 @@ async function handler(req: Request): Promise<Response> {
          return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     
+    // Editor Page
     if (pathname === "/editor") {
         if (searchParams.get("token") !== ADMIN_TOKEN) {
             return new Response("Forbidden: Invalid Admin Token.", { status: 403 });
@@ -34,17 +45,20 @@ async function handler(req: Request): Promise<Response> {
         const scriptResult = await kv.get<string>(["scripts", "main.ts"]);
         const currentCode = scriptResult.value || `// Start writing your Deno script here!\nconsole.log("Hello from my custom script!");`;
         
-        // --- THIS IS THE FIX ---
-        // Pass the origin from the server-side `url` object to the template function.
         return new Response(getEditorPageHTML(currentCode, ADMIN_TOKEN, url.origin), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
+    // Handle saving the code
     if (pathname === "/save" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
+        
         const code = formData.get("code") as string;
         const filename = "main.ts";
+        
         await kv.set(["scripts", filename], code);
+
+        // --- FIX #1: Redirect back to the editor with the token ---
         return Response.redirect(`/editor?token=${ADMIN_TOKEN}&status=saved`, 302);
     }
     
@@ -57,7 +71,7 @@ serve(handler);
 
 function getLoginPageHTML(): string {
     return `<!DOCTYPE html><html><head><title>Login</title><style>body{display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a2e;font-family:sans-serif;} .login-box{background:#162447;padding:2rem;border-radius:8px;} h1{color:#e43f5a;} form{display:flex;flex-direction:column;gap:1rem;} input,button{width:100%;padding:0.8rem;border-radius:5px;} button{background:#e43f5a;color:white;border:none;cursor:pointer;}</style></head>
-    <body><div class="login-box"><h1>Login to Code Editor</h1><form><input type="password" name="token" placeholder="Enter Admin Token"><button type="submit">Enter</button></form></div></body></html>`;
+    <body><div class="login-box"><h1>Login to Code Editor</h1><form action="/editor"><input type="password" name="token" placeholder="Enter Admin Token" required><button type="submit">Enter</button></form></div></body></html>`;
 }
 
 function getEditorPageHTML(code: string, token: string, origin: string): string {
