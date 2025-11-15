@@ -1,11 +1,11 @@
-// main.ts (The Absolute Final Version with all Form Fixes)
+// main.ts (The Absolute Final Version with ALL Form Fixes)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const CHUNK_SIZE = 64000;
 
-console.log("Code Hosting Service (Final Form Fix) is starting...");
+console.log("Code Hosting Service (All Form Fixes) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -48,45 +48,39 @@ async function handler(req: Request): Promise<Response> {
         return new Response(getEditorPageHTML(currentCode, Array.from(scriptNames), activeScript, ADMIN_TOKEN, url.origin), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
+    // --- API ENDPOINTS (They now return JSON) ---
     if (pathname === "/save" && method === "POST") {
-        const formData = await req.formData();
-        if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
-        const code = formData.get("code") as string;
-        const filename = formData.get("filename") as string;
-        const oldChunks = kv.list({ prefix: ["scripts", filename] });
-        for await (const chunk of oldChunks) { await kv.delete(chunk.key); }
-        if (code) {
-            for (let i = 0; i * CHUNK_SIZE < code.length; i++) {
-                const chunkContent = code.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                await kv.set(["scripts", filename, `chunk_${i}`], chunkContent);
-            }
-        } else { await kv.set(["scripts", filename, `chunk_0`], ""); }
-        return Response.redirect(`/editor?token=${ADMIN_TOKEN}&file=${filename}&status=saved`, 302);
+        try {
+            const formData = await req.formData();
+            if (formData.get("token") !== ADMIN_TOKEN) return new Response(JSON.stringify({ success: false, message: "Forbidden" }), { status: 403 });
+            const code = formData.get("code") as string;
+            const filename = formData.get("filename") as string;
+            const oldChunks = kv.list({ prefix: ["scripts", filename] });
+            for await (const chunk of oldChunks) { await kv.delete(chunk.key); }
+            if (code) {
+                for (let i = 0; i * CHUNK_SIZE < code.length; i++) {
+                    await kv.set(["scripts", filename, `chunk_${i}`], code.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+                }
+            } else { await kv.set(["scripts", filename, `chunk_0`], ""); }
+            return new Response(JSON.stringify({ success: true, message: "Saved!" }));
+        } catch (e) { return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500 });}
     }
     
-    // --- THIS IS THE FIX ---
-    // This endpoint is now an API endpoint, it returns JSON instead of redirecting.
     if (pathname === "/create-script" && method === "POST") {
         try {
             const formData = await req.formData();
-            const token = formData.get("token") as string;
-            if (token !== ADMIN_TOKEN) return new Response(JSON.stringify({ success: false, message: "Forbidden" }), { status: 403 });
-            
+            if (formData.get("token") !== ADMIN_TOKEN) return new Response(JSON.stringify({ success: false, message: "Forbidden" }), { status: 403 });
             const newFilename = (formData.get("newFilename") as string).trim();
             if (newFilename) {
                 const existing = await kv.get(["scripts", newFilename, "chunk_0"]);
                 if (existing.value === null) {
-                    await kv.set(["scripts", newFilename, `chunk_0`], `// New script created: ${newFilename}`);
+                    await kv.set(["scripts", newFilename, `chunk_0`], `// New script: ${newFilename}`);
                 }
-                // Return a success response with the new filename
-                return new Response(JSON.stringify({ success: true, filename: newFilename }), { headers: { "Content-Type": "application/json" } });
+                return new Response(JSON.stringify({ success: true, filename: newFilename }));
             }
             return new Response(JSON.stringify({ success: false, message: "Filename is empty." }), { status: 400 });
-        } catch (e) {
-            return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500 });
-        }
+        } catch (e) { return new Response(JSON.stringify({ success: false, message: e.message }), { status: 500 });}
     }
-    // --- END OF FIX ---
     
     return new Response("Not Found", { status: 404 });
 }
@@ -125,11 +119,10 @@ function getEditorPageHTML(code: string, scriptNames: string[], activeScript: st
         .notification { padding:1rem; text-align:center; background: #28a745; color:white; display: none; position: fixed; top: 0; left: 0; width: 100%; z-index: 2000; }
     </style>
     </head><body>
-        <div id="notification"></div>
+        <div id="notification" class="notification"></div>
         <div class="layout">
             <div class="sidebar">
-                <h2>Scripts</h2>
-                <ul>${scriptListHTML}</ul>
+                <h2>Scripts</h2><ul>${scriptListHTML}</ul>
                 <form id="new-script-form" class="new-script-form">
                     <input type="hidden" name="token" value="${token}">
                     <input type="text" name="newFilename" placeholder="new-script.ts" required>
@@ -138,7 +131,7 @@ function getEditorPageHTML(code: string, scriptNames: string[], activeScript: st
             </div>
             <div class="main-content">
                 <div class="header"><input type="text" value="${rawLink}" readonly onclick="this.select()"></div>
-                <form id="editor-form" method="POST" action="/save">
+                <form id="editor-form">
                     <input type="hidden" name="token" value="${token}">
                     <input type="hidden" name="filename" value="${activeScript}">
                     <textarea name="code" spellcheck="false" autocapitalize="off">${code}</textarea>
@@ -147,42 +140,44 @@ function getEditorPageHTML(code: string, scriptNames: string[], activeScript: st
             </div>
         </div>
         <script>
-            // --- THIS IS THE FIX FOR THE "CREATE SCRIPT" BUTTON ---
+            const notif = document.getElementById('notification');
+            function showNotification(message, duration = 3000) {
+                notif.textContent = message;
+                notif.style.display = 'block';
+                setTimeout(() => { notif.style.display = 'none'; }, duration);
+            }
+
+            // --- FIX FOR "CREATE SCRIPT" ---
             document.getElementById('new-script-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const form = e.target;
-                const formData = new FormData(form);
                 const button = form.querySelector('button');
-                button.disabled = true;
-                button.textContent = 'Creating...';
-
+                button.disabled = true; button.textContent = 'Creating...';
                 try {
-                    const response = await fetch('/create-script', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const result = await response.json();
+                    const res = await fetch('/create-script', { method: 'POST', body: new FormData(form) });
+                    const result = await res.json();
                     if (result.success) {
-                        // Redirect to the new file's editor page
                         window.location.href = \`/editor?token=${token}&file=\${result.filename}\`;
-                    } else {
-                        alert('Error: ' + result.message);
-                    }
-                } catch (error) {
-                    alert('An unexpected error occurred.');
-                } finally {
-                    button.disabled = false;
-                    button.textContent = 'Create New Script';
-                }
+                    } else { alert('Error: ' + result.message); }
+                } catch (error) { alert('An unexpected error occurred.');
+                } finally { button.disabled = false; button.textContent = 'Create New Script'; }
             });
-            // --- END OF FIX ---
 
-            if (new URLSearchParams(window.location.search).get('status') === 'saved') {
-                const notif = document.getElementById('notification');
-                notif.textContent = 'Script saved successfully!';
-                notif.style.display = 'block';
-                setTimeout(() => { notif.style.display = 'none'; history.replaceState(null, '', \`/editor?token=${token}&file=${activeScript}\`); }, 3000);
-            }
+            // --- FIX FOR "SAVE SCRIPT" ---
+            document.getElementById('editor-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                const button = form.querySelector('.footer button');
+                button.disabled = true; button.textContent = 'Saving...';
+                try {
+                    const res = await fetch('/save', { method: 'POST', body: new FormData(form) });
+                    const result = await res.json();
+                    if (result.success) {
+                        showNotification('Script saved successfully!');
+                    } else { alert('Error: ' + result.message); }
+                } catch (error) { alert('An unexpected error occurred.');
+                } finally { button.disabled = false; button.textContent = 'Save Changes'; }
+            });
         </script>
     </body></html>`;
 }
