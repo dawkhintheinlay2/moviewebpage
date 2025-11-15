@@ -1,11 +1,11 @@
-// main.ts (Final Version with "Read More" and all fixes)
+// main.ts (Final Version with all fixes)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const MOVIES_PER_PAGE = 15;
 
-console.log("Movie App Server (Read More feature) is starting...");
+console.log("Movie App Server (Final Fix) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -95,7 +95,7 @@ function createSlug(title: string): string {
 serve(handler);
 
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
-    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet.</p>';
+    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet. Please check back later.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
         paginationHTML += '<div class="pagination">';
@@ -108,26 +108,32 @@ function getHomepageHTML(movies: any[], currentPage: number, totalPages: number)
 }
 
 function getMovieDetailPageHTML(movie: any): string {
+    const watchLink = movie.watchUrl || '#';
+    const downloadLink = movie.downloadUrl || '#';
+    
     return `
     <!DOCTYPE html><html lang="my"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${movie.title || 'Movie'}</title>
+    <title>${movie.title || 'Movie Detail'}</title>
     <style>
-        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#333;margin:0;line-height:1.6;}
+        :root{--bg-color:#fff;--text-color:#3c4043;--title-color:#202124;--red-btn:#d93025;--blue-tag:#1a73e8;--meta-text:#5f6368;}
+        body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-color);color:var(--text-color);margin:0;line-height:1.6;}
         .container{max-width:800px;margin:auto;}
         .header-bar{display:flex;padding:1rem;}.header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}
         .main-content{padding:0 1rem 1rem;}
-        .movie-header{display:grid;grid-template-columns:140px 1fr;gap:1.2rem;align-items:flex-start;}
-        .poster img{width:100%;border-radius:8px;}
-        .info h1{font-size:1.6rem;margin:0 0 0.5rem;color:#111;}
-        .meta-info{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.9rem;color:#666;margin-bottom:0.8rem;}
-        .quality-tag{background:#1a73e8;color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;font-weight:500;}
-        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:1rem;font-size:0.9rem;margin-top:1rem;color:#555;}
+        .movie-header{display:flex;flex-direction:column;gap:1.2rem;}
+        .poster{width:150px;flex-shrink:0;}
+        .poster img{width:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);}
+        .info{display:flex;flex-direction:column;}
+        .info h1{font-size:1.6rem;margin:0 0 0.5rem;color:var(--title-color);}
+        .meta-info{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.9rem;color:var(--meta-text);margin-bottom:0.8rem;}
+        .quality-tag{background:var(--blue-tag);color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;font-weight:500;}
+        .stats-grid{display:flex;justify-content:space-between;font-size:0.9rem;margin-top:1rem;color:#555;padding:0.5rem 0;}
         .stat{display:flex;align-items:center;gap:0.4rem;}.stat-value{font-weight:600;}
-        .play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:#e53935;color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;}
+        .play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:var(--red-btn);color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;}
         .secondary-actions{display:flex;justify-content:space-around;text-align:center;padding:1rem 0;border-top:1px solid #eee;border-bottom:1px solid #eee;}
         .action-btn{text-decoration:none;color:#555;display:flex;flex-direction:column;align-items:center;gap:0.2rem;}
-        .action-btn svg{width:24px;height:24px;margin-bottom:0.2rem;}
+        .action-btn svg{width:24px;height:24px;}
         .storyline{margin-top:2rem;}
         .storyline h2{font-size:1.3rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}
         .synopsis-container{max-height:100px;overflow:hidden;position:relative;transition:max-height 0.5s ease-in-out;}
@@ -138,7 +144,7 @@ function getMovieDetailPageHTML(movie: any): string {
         .read-more-btn{background:none;border:none;color:#1a73e8;font-weight:bold;cursor:pointer;padding:0.5rem 0;}
         .video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;}
         .video-player-container.active{display:block;} video{width:100%;border-radius:8px;outline:none;}
-        @media (max-width: 600px) { .movie-header{grid-template-columns:1fr;text-align:center;} .poster{max-width:200px;margin:0 auto 1.5rem;} .info{text-align:left;} }
+        @media (min-width: 600px) { .movie-header { flex-direction: row; } }
     </style>
     </head><body><div class="container">
         <header class="header-bar"><a href="/">&larr;</a></header>
@@ -160,13 +166,11 @@ function getMovieDetailPageHTML(movie: any): string {
             <div id="video-container" class="video-player-container"><video id="movie-player" controls controlsList="nodownload" preload="metadata"></video></div>
             <div class="secondary-actions">
                 <a href="#" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></a>
-                <a href="${movie.downloadUrl || '#'}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></a>
+                <a href="${downloadLink}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></a>
             </div>
             <div class="storyline">
                 <h2>Storyline</h2>
-                <div class="synopsis-container" id="synopsis-container">
-                    <p class="synopsis">${movie.synopsis || ''}</p>
-                </div>
+                <div class="synopsis-container" id="synopsis-container"><p class="synopsis">${movie.synopsis || ''}</p></div>
                 <button id="read-more-btn" class="read-more-btn" style="display:none;">Read More</button>
             </div>
         </div>
@@ -175,16 +179,8 @@ function getMovieDetailPageHTML(movie: any): string {
         const playBtn=document.getElementById('play-btn');const videoContainer=document.getElementById('video-container');const player=document.getElementById('movie-player');
         playBtn.addEventListener('click',()=>{videoContainer.classList.toggle('active');if(videoContainer.classList.contains('active')){if(!player.src){player.src='/stream/${movie.slug}';}
         player.play();playBtn.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg> Close Player';}else{player.pause();playBtn.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play';}});
-
-        const synopsisContainer = document.getElementById('synopsis-container');
-        const readMoreBtn = document.getElementById('read-more-btn');
-        if (synopsisContainer.scrollHeight > synopsisContainer.clientHeight) {
-            readMoreBtn.style.display = 'block';
-            readMoreBtn.addEventListener('click', () => {
-                synopsisContainer.classList.toggle('expanded');
-                readMoreBtn.textContent = synopsisContainer.classList.contains('expanded') ? 'Read Less' : 'Read More';
-            });
-        }
+        const synopsisContainer=document.getElementById('synopsis-container');const readMoreBtn=document.getElementById('read-more-btn');
+        if(synopsisContainer.scrollHeight > 102){readMoreBtn.style.display='block';readMoreBtn.addEventListener('click',()=>{synopsisContainer.classList.toggle('expanded');readMoreBtn.textContent=synopsisContainer.classList.contains('expanded')?'Read Less':'Read More';});}
     </script></body></html>`;
 }
 
