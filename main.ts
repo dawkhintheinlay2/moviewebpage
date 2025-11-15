@@ -1,4 +1,4 @@
-// main.ts (Final Version with Premium System & All Fixes)
+// main.ts (Final Cleaned and Corrected Version)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { getCookies, setCookie } from "https://deno.land/std@0.224.0/http/cookie.ts";
 
@@ -147,7 +147,7 @@ function createSlug(title: string): string {
 serve(handler);
 
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
-    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet. Please check back later.</p>';
+    const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
         paginationHTML += '<div class="pagination">';
@@ -160,26 +160,8 @@ function getHomepageHTML(movies: any[], currentPage: number, totalPages: number)
 }
 
 function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): string {
-    const watchAction = hasAccess ? `
-        const player = document.getElementById('movie-player');
-        const container = document.getElementById('video-container');
-        const btn = document.getElementById('play-btn');
-        const isPlaying = container.style.display === 'block';
-        if (isPlaying) {
-            player.pause();
-            container.style.display = 'none';
-            btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play';
-        } else {
-            container.style.display = 'block';
-            if (!player.src) {
-                player.src = '/stream/${movie.slug}';
-            }
-            player.play();
-            btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg> Close Player';
-        }` : `document.getElementById('premium-modal').style.display='flex';`;
-    const downloadAction = hasAccess ? `location.href='${movie.downloadUrl || '#'}'` : `document.getElementById('premium-modal').style.display='flex';`;
-    const premiumStatusHTML = hasAccess ? `<div class="premium-status success">Premium Active! Expires on: ${new Date(keyInfo.expiryDate).toLocaleDateString()}</div>` : `<div class="premium-status required" onclick="document.getElementById('premium-modal').style.display='flex'">Premium Required</div>`;
-
+    const premiumStatusHTML = hasAccess ? `<div class="premium-status success">Premium Active! Expires on: ${new Date(keyInfo.expiryDate).toLocaleDateString()}</div>` : `<div class="premium-status required" onclick="showModal()">Premium Required</div>`;
+    
     return `
     <!DOCTYPE html><html lang="my"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -228,17 +210,41 @@ function getMovieDetailPageHTML(movie: any, hasAccess: boolean, keyInfo: any): s
                 </div>
             </div>
             ${premiumStatusHTML}
-            <button onclick="${watchAction}" id="play-btn" class="play-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play</button>
+            <button id="play-btn" class="play-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play</button>
             <div id="video-container" style="display:none;"><video id="movie-player" controls controlsList="nodownload" preload="metadata"></video></div>
             <div class="secondary-actions">
                 <div class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></div><span>Favorite</span></div>
-                <div onclick="${downloadAction}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></div>
+                <div id="download-btn" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></div>
             </div>
             <div class="storyline"><h2>Storyline</h2><p class="synopsis">${movie.synopsis || ''}</p></div>
         </div>
         <div class="modal-overlay" id="premium-modal"><div class="modal-content"><span onclick="this.parentElement.parentElement.style.display='none'" style="float:right;cursor:pointer;">&times;</span><h3>Premium Key လိုအပ်သည်</h3><p>Premium အသုံးပြုခွင့်ရရန် သင်၏ key ကိုထည့်သွင်းပါ။</p><input type="text" id="key-input" placeholder="LUGI-KEY-XXXXXX" style="width:100%;padding:0.5rem;margin:1rem 0;"><button id="activate-btn" class="play-btn">Activate Key</button><p id="modal-message"></p></div></div>
     </div>
     <script>
+        const hasAccess = ${hasAccess};
+        function showModal() { document.getElementById('premium-modal').style.display='flex'; }
+        document.getElementById('play-btn').addEventListener('click', () => {
+            if (hasAccess) {
+                const player = document.getElementById('movie-player');
+                const container = document.getElementById('video-container');
+                const btn = document.getElementById('play-btn');
+                const isPlaying = container.style.display === 'block';
+                if (isPlaying) {
+                    player.pause();
+                    container.style.display = 'none';
+                    btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play';
+                } else {
+                    container.style.display = 'block';
+                    if (!player.src) { player.src = '/stream/${movie.slug}'; }
+                    player.play();
+                    btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg> Close Player';
+                }
+            } else { showModal(); }
+        });
+        document.getElementById('download-btn').addEventListener('click', () => {
+            if (hasAccess) { location.href = '${movie.downloadUrl || '#'}'; }
+            else { showModal(); }
+        });
         document.getElementById('activate-btn').addEventListener('click',async()=>{const k=document.getElementById('key-input').value,m=document.getElementById('modal-message');m.textContent='Activating...';const r=await fetch('/api/activate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k})}),d=await r.json();if(d.success){m.textContent='Success! Reloading...';setTimeout(()=>window.location.reload(),1e3)}else{m.textContent=d.message||'Activation failed.';}});
     </script></body></html>`;
 }
@@ -248,8 +254,8 @@ function getLoginPageHTML(): string {
 }
 
 function getAdminPageHTML(data: { movies: any[], keys: any[] }, token: string): string {
-    const movieRows = data.movies.map(m => `<tr><td>${m.title}</td><td><a href="/movies/${m.slug}" target="_blank">View</a></td><td><form method="POST" onsubmit="return confirm('Delete this movie?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="slug" value="${m.slug}"><button formaction="/delete-movie">Delete</button></form></td></tr>`).join('');
-    const keyRows = data.keys.map(k => `<tr><td><code>${k.key}</code></td><td>${k.user}</td><td>${new Date(k.expiryDate).toLocaleDateString()}</td><td><form method="POST" onsubmit="return confirm('Delete this key?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="key" value="${k.key}"><button formaction="/delete-key">Delete</button></form></td></tr>`).join('');
+    const movieRows = data.movies.map(m => `<tr><td>${m.title}</td><td><a href="/movies/${m.slug}" target="_blank">View</a></td><td><form method="POST" onsubmit="return confirm('Delete movie?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="slug" value="${m.slug}"><button formaction="/delete-movie">Delete</button></form></td></tr>`).join('');
+    const keyRows = data.keys.map(k => `<tr><td><code>${k.key}</code></td><td>${k.user}</td><td>${new Date(k.expiryDate).toLocaleDateString()}</td><td><form method="POST" onsubmit="return confirm('Delete key?');"><input type="hidden" name="token" value="${token}"><input type="hidden" name="key" value="${k.key}"><button formaction="/delete-key">Delete</button></form></td></tr>`).join('');
     return `<!DOCTYPE html><html><head><title>Admin Dashboard</title><style>body{font-family:sans-serif;padding:2rem;background:#f8f9fa;} .container{max-width:1000px;margin:auto;} .tabs{display:flex;gap:1rem;border-bottom:1px solid #ccc;margin-bottom:1rem;} .tab{padding:0.5rem 1rem;cursor:pointer;} .tab.active{border:1px solid #ccc;border-bottom:1px solid #f8f9fa;background:#f8f9fa;} .panel{display:none;} .panel.active{display:block;} form{display:grid;grid-template-columns:1fr 1fr;gap:1rem;} label{font-weight:bold;margin-bottom:0.2rem;grid-column:1/-1;} input,textarea{width:100%;padding:0.5rem;border:1px solid #ced4da;border-radius:4px;} .full-width{grid-column:1/-1;} table{width:100%;border-collapse:collapse;margin-top:1rem;}th,td{border:1px solid #ccc;padding:0.5rem;}</style></head><body>
     <div class="container"><h1>Admin Dashboard</h1><div class="tabs"><div class="tab active" onclick="showTab('movies')">Movies</div><div class="tab" onclick="showTab('keys')">Premium Keys</div></div>
     <div id="movies" class="panel active">
@@ -269,6 +275,6 @@ function getAdminPageHTML(data: { movies: any[], keys: any[] }, token: string): 
         <h2>Generate Key</h2><form action="/generate-key" method="POST"><input type="hidden" name="token" value="${token}"><label>User/Note:</label><input type="text" name="user"><label>Duration (days):</label><input type="number" name="duration" value="30"><button type="submit">Generate Key</button></form>
         <h2>Active Keys</h2><table><thead><tr><th>Key</th><th>User</th><th>Expires On</th><th>Action</th></tr></thead><tbody>${keyRows}</tbody></table>
     </div></div>
-    <script>function showTab(t){document.querySelectorAll('.panel,.tab').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');event.currentTarget.classList.add('active');window.location.hash=t;} if(window.location.hash){showTab(window.location.hash.substring(1));}</script>
+    <script>function showTab(t){document.querySelectorAll('.panel,.tab').forEach(e=>e.classList.remove('active'));document.getElementById(t).classList.add('active');event.currentTarget.classList.add('active');window.location.hash=t;}if(window.location.hash){showTab(window.location.hash.substring(1));}</script>
     </body></html>`;
 }
