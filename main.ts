@@ -1,11 +1,11 @@
-// main.ts (Final Layout & Data Fix Version)
+// main.ts (Final Version with "Read More" and all fixes)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "your-secret-admin-token";
 const MOVIES_PER_PAGE = 15;
 
-console.log("Movie App Server (Layout & Data Fix) is starting...");
+console.log("Movie App Server (Read More feature) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -94,10 +94,7 @@ function createSlug(title: string): string {
 
 serve(handler);
 
-// --- HTML Templates ---
-
 function getHomepageHTML(movies: any[], currentPage: number, totalPages: number): string {
-    // This function is correct and remains unchanged.
     const movieCards = movies.length > 0 ? movies.map(movie => `<a href="/movies/${movie.slug}" class="movie-card"><img src="${movie.posterUrl}" alt="${movie.title}" loading="lazy"><div class="movie-info"><h3>${movie.title}</h3></div></a>`).join('') : '<p>No movies have been added yet.</p>';
     let paginationHTML = '';
     if (totalPages > 1) {
@@ -118,27 +115,30 @@ function getMovieDetailPageHTML(movie: any): string {
     <style>
         body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#333;margin:0;line-height:1.6;}
         .container{max-width:800px;margin:auto;}
-        .header-bar{display:flex;padding:1rem;}
-        .header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}
+        .header-bar{display:flex;padding:1rem;}.header-bar a{text-decoration:none;color:#333;font-size:1.5rem;}
         .main-content{padding:0 1rem 1rem;}
         .movie-header{display:grid;grid-template-columns:140px 1fr;gap:1.2rem;align-items:flex-start;}
         .poster img{width:100%;border-radius:8px;}
-        .info h1{font-size:1.6rem;margin:0 0 0.5rem; color: #111;}
+        .info h1{font-size:1.6rem;margin:0 0 0.5rem;color:#111;}
         .meta-info{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.9rem;color:#666;margin-bottom:0.8rem;}
-        .meta-info span{line-height:1;}
         .quality-tag{background:#1a73e8;color:white;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.8rem;font-weight:500;}
-        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(80px, 1fr));gap:1rem;font-size:0.9rem;margin-top:1rem; color: #555;}
-        .stat{display:flex;align-items:center;gap:0.4rem;}
-        .stat-value{font-weight:600;}
-        .play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:#e53935;color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer; display:flex; align-items:center; justify-content:center; gap: 0.5rem;}
+        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:1rem;font-size:0.9rem;margin-top:1rem;color:#555;}
+        .stat{display:flex;align-items:center;gap:0.4rem;}.stat-value{font-weight:600;}
+        .play-btn{width:100%;padding:0.9rem;margin:1.5rem 0;background:#e53935;color:white;font-size:1.1rem;font-weight:bold;border:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;}
         .secondary-actions{display:flex;justify-content:space-around;text-align:center;padding:1rem 0;border-top:1px solid #eee;border-bottom:1px solid #eee;}
         .action-btn{text-decoration:none;color:#555;display:flex;flex-direction:column;align-items:center;gap:0.2rem;}
-        .action-btn svg{width:24px;height:24px;}
+        .action-btn svg{width:24px;height:24px;margin-bottom:0.2rem;}
         .storyline{margin-top:2rem;}
         .storyline h2{font-size:1.3rem;border-bottom:2px solid #e53935;padding-bottom:0.5rem;}
-        .synopsis{white-space:pre-wrap;color:#555;}
+        .synopsis-container{max-height:100px;overflow:hidden;position:relative;transition:max-height 0.5s ease-in-out;}
+        .synopsis-container.expanded{max-height:1000px;}
+        .synopsis-container::after{content:'';position:absolute;bottom:0;left:0;width:100%;height:40px;background:linear-gradient(to top,white,rgba(255,255,255,0));}
+        .synopsis-container.expanded::after{display:none;}
+        .synopsis{white-space:pre-wrap;color:#555;margin:0;}
+        .read-more-btn{background:none;border:none;color:#1a73e8;font-weight:bold;cursor:pointer;padding:0.5rem 0;}
         .video-player-container{display:none;margin-top:1.5rem;background:#000;border-radius:8px;}
         .video-player-container.active{display:block;} video{width:100%;border-radius:8px;outline:none;}
+        @media (max-width: 600px) { .movie-header{grid-template-columns:1fr;text-align:center;} .poster{max-width:200px;margin:0 auto 1.5rem;} .info{text-align:left;} }
     </style>
     </head><body><div class="container">
         <header class="header-bar"><a href="/">&larr;</a></header>
@@ -163,7 +163,11 @@ function getMovieDetailPageHTML(movie: any): string {
                 <a href="${movie.downloadUrl || '#'}" class="action-btn"><div><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"></path></svg></div><span>Download</span></a>
             </div>
             <div class="storyline">
-                <h2>Storyline</h2><p class="synopsis">${movie.synopsis || ''}</p>
+                <h2>Storyline</h2>
+                <div class="synopsis-container" id="synopsis-container">
+                    <p class="synopsis">${movie.synopsis || ''}</p>
+                </div>
+                <button id="read-more-btn" class="read-more-btn" style="display:none;">Read More</button>
             </div>
         </div>
     </div>
@@ -171,6 +175,16 @@ function getMovieDetailPageHTML(movie: any): string {
         const playBtn=document.getElementById('play-btn');const videoContainer=document.getElementById('video-container');const player=document.getElementById('movie-player');
         playBtn.addEventListener('click',()=>{videoContainer.classList.toggle('active');if(videoContainer.classList.contains('active')){if(!player.src){player.src='/stream/${movie.slug}';}
         player.play();playBtn.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg> Close Player';}else{player.pause();playBtn.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg> Play';}});
+
+        const synopsisContainer = document.getElementById('synopsis-container');
+        const readMoreBtn = document.getElementById('read-more-btn');
+        if (synopsisContainer.scrollHeight > synopsisContainer.clientHeight) {
+            readMoreBtn.style.display = 'block';
+            readMoreBtn.addEventListener('click', () => {
+                synopsisContainer.classList.toggle('expanded');
+                readMoreBtn.textContent = synopsisContainer.classList.contains('expanded') ? 'Read Less' : 'Read More';
+            });
+        }
     </script></body></html>`;
 }
 
